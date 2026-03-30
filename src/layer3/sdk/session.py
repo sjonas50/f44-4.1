@@ -182,6 +182,7 @@ class SessionManager:
 
     async def _run_pipeline(self, summary: SessionSummary) -> SessionSummary:
         """Execute the storage, batch, and feedback pipeline steps."""
+        assert self._settings is not None  # Caller checks this before calling
 
         # Step 3: Write 5W artifacts to storage
         try:

@@ -295,11 +295,12 @@ class ProvenanceCapture:
             self._tool_failures.append(invocation)
 
         # Track data access patterns with sensitivity
-        if "data_source" in (inputs or {}):
-            sensitivity = (inputs or {}).get("sensitivity", "internal")
+        effective_inputs = inputs or {}
+        if "data_source" in effective_inputs:
+            sensitivity = effective_inputs.get("sensitivity", "internal")
             self._data_access_patterns.append(
                 {
-                    "data_source": inputs["data_source"],
+                    "data_source": effective_inputs["data_source"],
                     "sensitivity": sensitivity,
                     "fields_accessed": [],
                 }

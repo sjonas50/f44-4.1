@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import asyncpg
+import asyncpg.pool
 import redis.asyncio as aioredis
 import structlog
 
@@ -23,7 +24,9 @@ TRUST_EVENT_STREAM = "stream:trust_event"
 class KYAService:
     """Manages agent registration, verification, and lifecycle transitions."""
 
-    def __init__(self, conn: asyncpg.Connection, redis_client: aioredis.Redis) -> None:
+    def __init__(
+        self, conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, redis_client: aioredis.Redis
+    ) -> None:
         self._conn = conn
         self._redis = redis_client
 

@@ -30,7 +30,7 @@ async def enqueue_batch_record(redis_client: aioredis.Redis, record: BatchRecord
         redis_client: Async Redis client.
         record: BatchRecord to queue for the next anchor batch.
     """
-    await redis_client.rpush(PENDING_RECORDS_KEY, record.model_dump_json())
+    await redis_client.rpush(PENDING_RECORDS_KEY, record.model_dump_json())  # type: ignore[misc]
 
 
 async def build_and_submit_batch(redis_client: aioredis.Redis, settings: Settings) -> BatchResult | None:
@@ -90,7 +90,7 @@ async def build_and_submit_batch(redis_client: aioredis.Redis, settings: Setting
         # Re-enqueue records for the next interval
         logger.error("anchor_submission_failed_requeueing", error=str(e), record_count=len(raw_records))
         for raw in raw_records:
-            await redis_client.rpush(PENDING_RECORDS_KEY, raw)
+            await redis_client.rpush(PENDING_RECORDS_KEY, raw)  # type: ignore[misc]
         raise
 
     return batch_result

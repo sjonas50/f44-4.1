@@ -3,11 +3,12 @@
 from uuid import UUID
 
 import asyncpg
+import asyncpg.pool
 
 from src.shared.models.agent import AgentModel, AgentStatus
 
 
-async def create_agent(conn: asyncpg.Connection, agent: AgentModel) -> AgentModel:
+async def create_agent(conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, agent: AgentModel) -> AgentModel:
     """Insert a new agent record.
 
     Args:
@@ -36,7 +37,7 @@ async def create_agent(conn: asyncpg.Connection, agent: AgentModel) -> AgentMode
     return agent
 
 
-async def get_agent(conn: asyncpg.Connection, agent_id: UUID) -> AgentModel | None:
+async def get_agent(conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, agent_id: UUID) -> AgentModel | None:
     """Fetch an agent by ID.
 
     Args:
@@ -52,7 +53,9 @@ async def get_agent(conn: asyncpg.Connection, agent_id: UUID) -> AgentModel | No
     return _row_to_model(row)
 
 
-async def update_agent(conn: asyncpg.Connection, agent_id: UUID, updates: dict) -> AgentModel | None:
+async def update_agent(
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, agent_id: UUID, updates: dict
+) -> AgentModel | None:
     """Update specific fields on an agent.
 
     Args:
@@ -92,7 +95,7 @@ async def update_agent(conn: asyncpg.Connection, agent_id: UUID, updates: dict) 
 
 
 async def list_agents(
-    conn: asyncpg.Connection,
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy,
     status: AgentStatus | None = None,
     trust_tier: int | None = None,
     limit: int = 50,
@@ -132,7 +135,9 @@ async def list_agents(
     return [_row_to_model(row) for row in rows]
 
 
-async def transition_status(conn: asyncpg.Connection, agent_id: UUID, new_status: AgentStatus) -> AgentModel | None:
+async def transition_status(
+    conn: asyncpg.Connection | asyncpg.pool.PoolConnectionProxy, agent_id: UUID, new_status: AgentStatus
+) -> AgentModel | None:
     """Update agent status.
 
     Args:

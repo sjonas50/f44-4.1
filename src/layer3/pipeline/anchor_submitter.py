@@ -7,12 +7,13 @@ No web3.py dependency — minimal stack: eth-account + eth-abi + httpx.
 
 import asyncio
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 import structlog
-from eth_abi import encode
+from eth_abi.abi import encode  # type: ignore[import-untyped]
 from eth_account import Account
-from eth_utils import function_signature_to_4byte_selector
+from eth_utils.abi import function_signature_to_4byte_selector  # type: ignore[import-untyped]
 from pydantic import BaseModel
 
 from src.layer3.pipeline.batch_extension import BatchResult
@@ -22,7 +23,7 @@ from src.shared.crypto.hashing import sha256_hex
 logger = structlog.get_logger()
 
 # Correct Keccak-256 selector for anchorBatch(bytes32,bytes32,uint256)
-ANCHOR_BATCH_SELECTOR = function_signature_to_4byte_selector("anchorBatch(bytes32,bytes32,uint256)")
+ANCHOR_BATCH_SELECTOR: bytes = function_signature_to_4byte_selector("anchorBatch(bytes32,bytes32,uint256)")
 
 
 class AnchorResult(BaseModel):
@@ -105,7 +106,7 @@ def _encode_anchor_call(batch_result: BatchResult) -> bytes:
     batch_id_int = int(sha256_hex(batch_result.batch_id)[:16], 16)
 
     # ABI encode: selector + encode(bytes32, bytes32, uint256)
-    encoded_args = encode(
+    encoded_args: bytes = encode(
         ["bytes32", "bytes32", "uint256"],
         [merkle_root, metadata_hash, batch_id_int],
     )
@@ -120,39 +121,32 @@ async def _sign_and_send(
     private_key: str,
     chain_id: int,
 ) -> AnchorResult:
-    """Sign an EIP-1559 transaction locally and submit via eth_sendRawTransaction.
-
-    Args:
-        rpc_url: Ethereum JSON-RPC endpoint (Alchemy, QuickNode, etc.).
-        contract_address: Deployed BatchAnchor contract address.
-        calldata: ABI-encoded function call bytes.
-        private_key: Hex private key for signing.
-        chain_id: EVM chain ID (8453 for Base mainnet, 84532 for Base Sepolia).
-
-    Returns:
-        AnchorResult with tx hash and chain metadata.
-    """
+    """Sign an EIP-1559 transaction locally and submit via eth_sendRawTransaction."""
     account = Account.from_key(private_key)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # Get nonce
-        nonce = await _rpc_call(client, rpc_url, "eth_getTransactionCount", [account.address, "pending"])
-        nonce_int = int(nonce, 16)
+        nonce_hex = str(await _rpc_call(client, rpc_url, "eth_getTransactionCount", [account.address, "pending"]))
+        nonce_int = int(nonce_hex, 16)
 
         # Get current base fee from latest block
-        latest_block = await _rpc_call(client, rpc_url, "eth_getBlockByNumber", ["latest", False])
-        base_fee = int(latest_block["baseFeePerGas"], 16)
+        latest_block: dict[str, Any] = await _rpc_call(  # type: ignore[assignment]
+            client, rpc_url, "eth_getBlockByNumber", ["latest", False]
+        )
+        base_fee = int(str(latest_block["baseFeePerGas"]), 16)
 
         # EIP-1559 gas params: maxFeePerGas = 2 * baseFee + tip (safe margin for Base L2)
         max_priority_fee = 1_000_000  # 0.001 gwei — Base sequencer accepts near-zero tips
         max_fee_per_gas = base_fee * 2 + max_priority_fee
 
         # Estimate gas
-        gas_estimate_hex = await _rpc_call(
-            client,
-            rpc_url,
-            "eth_estimateGas",
-            [{"from": account.address, "to": contract_address, "data": "0x" + calldata.hex()}],
+        gas_estimate_hex = str(
+            await _rpc_call(
+                client,
+                rpc_url,
+                "eth_estimateGas",
+                [{"from": account.address, "to": contract_address, "data": "0x" + calldata.hex()}],
+            )
         )
         gas_limit = int(gas_estimate_hex, 16) + 10_000  # Small buffer
 
@@ -174,26 +168,21 @@ async def _sign_and_send(
         raw_tx_hex = "0x" + signed.raw_transaction.hex()
 
         # Submit
-        tx_hash = await _rpc_call(client, rpc_url, "eth_sendRawTransaction", [raw_tx_hex])
+        tx_hash = str(await _rpc_call(client, rpc_url, "eth_sendRawTransaction", [raw_tx_hex]))
 
         logger.info("anchor_tx_submitted", tx_hash=tx_hash, nonce=nonce_int, gas_limit=gas_limit)
 
         # Poll for receipt (up to 60 seconds)
         receipt = await _wait_for_receipt(client, rpc_url, tx_hash, timeout_seconds=60)
 
-    block_number = int(receipt["blockNumber"], 16) if receipt else 0
-    gas_used = int(receipt["gasUsed"], 16) if receipt else 0
-    status = int(receipt["status"], 16) if receipt else 0
+    block_number = int(str(receipt["blockNumber"]), 16) if receipt else 0
+    gas_used = int(str(receipt["gasUsed"]), 16) if receipt else 0
+    status = int(str(receipt["status"]), 16) if receipt else 0
 
     if receipt and status != 1:
         raise RuntimeError(f"Transaction reverted: {tx_hash}")
 
-    logger.info(
-        "anchor_confirmed",
-        tx_hash=tx_hash,
-        block=block_number,
-        gas_used=gas_used,
-    )
+    logger.info("anchor_confirmed", tx_hash=tx_hash, block=block_number, gas_used=gas_used)
 
     return AnchorResult(
         tx_hash=tx_hash,
@@ -205,7 +194,7 @@ async def _sign_and_send(
     )
 
 
-async def _rpc_call(client: httpx.AsyncClient, rpc_url: str, method: str, params: list) -> dict | str:
+async def _rpc_call(client: httpx.AsyncClient, rpc_url: str, method: str, params: list) -> Any:
     """Make a JSON-RPC call and return the result.
 
     Raises:
@@ -228,25 +217,14 @@ async def _wait_for_receipt(
     tx_hash: str,
     timeout_seconds: int = 60,
     poll_interval: float = 2.0,
-) -> dict | None:
-    """Poll for transaction receipt until confirmed or timeout.
-
-    Args:
-        client: httpx client.
-        rpc_url: RPC endpoint.
-        tx_hash: Transaction hash to poll.
-        timeout_seconds: Max wait time.
-        poll_interval: Seconds between polls.
-
-    Returns:
-        Transaction receipt dict, or None on timeout.
-    """
+) -> dict[str, Any] | None:
+    """Poll for transaction receipt until confirmed or timeout."""
     elapsed = 0.0
     while elapsed < timeout_seconds:
         try:
             receipt = await _rpc_call(client, rpc_url, "eth_getTransactionReceipt", [tx_hash])
             if receipt is not None:
-                return receipt
+                return receipt  # type: ignore[return-value]
         except RuntimeError:
             pass
         await asyncio.sleep(poll_interval)
