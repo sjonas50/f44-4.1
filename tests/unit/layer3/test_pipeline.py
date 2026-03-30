@@ -170,7 +170,7 @@ class TestFeedbackEmitter:
         sm.record_tool_invocation("crm_lookup", inputs={"data_source": "client_portfolio"})
         sm.record_tool_invocation("portfolio_query", inputs={"data_source": "account_details"})
         sm.record_dead_end("API timeout")
-        summary = sm.end_session()
+        summary = await sm.end_session()
 
         msg_id = await emit_session_feedback(redis_client, sm.session_id, agent_id, summary, sm.capture)
         assert msg_id

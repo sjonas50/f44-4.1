@@ -11,7 +11,7 @@ import redis.asyncio as aioredis
 import structlog
 
 from src.layer3.sdk.capture import ProvenanceCapture
-from src.layer3.sdk.session import SessionSummary
+from src.layer3.sdk.models import SessionSummary
 from src.shared.redis_client.streams import xadd
 
 logger = structlog.get_logger()
