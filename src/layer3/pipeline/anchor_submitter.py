@@ -134,6 +134,25 @@ async def _send_anchor_tx(
     )
 
 
+def _compute_selector(signature: str) -> str:
+    """Compute the 4-byte function selector from a Solidity signature.
+
+    Args:
+        signature: Function signature, e.g. "anchorBatch(bytes32,bytes32,uint256)".
+
+    Returns:
+        Hex-encoded 4-byte selector with 0x prefix.
+    """
+    import hashlib
+
+    digest = hashlib.sha3_256(signature.encode()).hexdigest()
+    return f"0x{digest[:8]}"
+
+
+# Pre-computed selector for anchorBatch(bytes32,bytes32,uint256)
+ANCHOR_BATCH_SELECTOR = _compute_selector("anchorBatch(bytes32,bytes32,uint256)")
+
+
 def _encode_anchor_call(merkle_root: str, metadata_hash: str, batch_id: str) -> str:
     """Encode the anchorBatch function call data.
 
@@ -145,9 +164,9 @@ def _encode_anchor_call(merkle_root: str, metadata_hash: str, batch_id: str) -> 
     Returns:
         Hex-encoded call data.
     """
-    # anchorBatch(bytes32,bytes32,uint256) selector
-    selector = "0xa1b2c3d4"  # Placeholder — real selector computed from ABI
-    root_padded = merkle_root.ljust(64, "0")
-    meta_padded = metadata_hash.ljust(64, "0")
-    id_hash = sha256_hex(batch_id)  # Convert string batch_id to uint256
-    return f"{selector}{root_padded}{meta_padded}{id_hash}"
+    # Left-zero-pad bytes32 args to 64 hex chars (ABI encoding)
+    root_padded = merkle_root[:64].zfill(64)
+    meta_padded = metadata_hash[:64].zfill(64)
+    # Convert batch_id to uint256 (hash it, take as 256-bit integer, left-pad to 64 hex)
+    id_hash = sha256_hex(batch_id).zfill(64)
+    return f"{ANCHOR_BATCH_SELECTOR}{root_padded}{meta_padded}{id_hash}"

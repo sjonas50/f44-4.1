@@ -6,9 +6,11 @@ Must return within 1ms (Redis read only).
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-router = APIRouter(prefix="/behavioral", tags=["behavioral"])
+from src.shared.middleware.auth import require_auth
+
+router = APIRouter(prefix="/behavioral", tags=["behavioral"], dependencies=[Depends(require_auth)])
 
 
 @router.get("/score/{agent_id}")

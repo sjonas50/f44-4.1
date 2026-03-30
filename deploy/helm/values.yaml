@@ -1,0 +1,102 @@
+# Sovereign Agent — Helm Chart Values
+# Extends ASOR's existing chart. Overlay this on ASOR's values.yaml.
+# Do NOT replace ASOR's values — merge with: helm install -f asor-values.yaml -f values.yaml
+
+# Layer 1: Trust & Identity
+layer1:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: sovereign-agent/layer1
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8001
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+    REDIS_URL: redis://redis-master:6379/0
+    DATABASE_URL: postgresql://sovereign:$(DB_PASSWORD)@postgres:5432/sovereign_agent
+    ASOR_VC_ENDPOINT: http://asor:8000/vc/issue
+    ASOR_BASE_URL: http://asor:8000
+
+# Layer 3: Provenance
+layer3:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: sovereign-agent/layer3
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8003
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+    REDIS_URL: redis://redis-master:6379/0
+    DATABASE_URL: postgresql://sovereign:$(DB_PASSWORD)@postgres:5432/sovereign_agent
+    AWS_S3_WORM_BUCKET: sovereign-agent-worm-prod
+    AWS_REGION: us-east-1
+    WORM_RETENTION_YEARS: "7"
+
+# Behavioral Analysis Worker
+behavioralWorker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: sovereign-agent/behavioral-worker
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  env:
+    ENVIRONMENT: production
+    LOG_LEVEL: INFO
+    REDIS_URL: redis://redis-master:6379/0
+
+# Anchor Configuration (shared across services)
+anchor:
+  BASE_L2_RPC_URL: ""  # Set via sealed secret
+  BASE_L2_RPC_FALLBACK_URL: ""  # Set via sealed secret
+  ANCHOR_CONTRACT_ADDRESS: ""  # Set after deployment
+  ANCHOR_INTERVAL_SECONDS: "300"
+
+# Secrets — reference Kubernetes secrets, do NOT put values here
+secrets:
+  jwtSigningKey:
+    secretName: sovereign-agent-secrets
+    key: jwt-signing-key
+  dbPassword:
+    secretName: sovereign-agent-secrets
+    key: db-password
+  alchemyApiKey:
+    secretName: sovereign-agent-secrets
+    key: alchemy-api-key
+  vaultToken:
+    secretName: sovereign-agent-secrets
+    key: vault-token
+
+# ConfigMap entries shared by all services
+configMap:
+  VAULT_ADDR: http://vault.vault.svc.cluster.local:8200

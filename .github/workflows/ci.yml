@@ -24,6 +24,15 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run pytest tests/ -v --tb=short
 
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v4
+      - run: uv sync --extra dev
+      - run: uv pip install pyright
+      - run: uv run pyright src/
+
   foundry:
     runs-on: ubuntu-latest
     steps:

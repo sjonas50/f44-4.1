@@ -98,3 +98,25 @@ async def process_session_events(redis_client: aioredis.Redis, consumer_name: st
             logger.exception("session_processing_error", msg_id=msg_id)
 
     return processed
+
+
+async def run_consumer_loop() -> None:
+    """Run the consumer in a continuous loop."""
+    from src.shared.config.settings import Settings
+    from src.shared.redis_client.client import close_redis, init_redis
+
+    settings = Settings()
+    redis_client = await init_redis(settings)
+    logger.info("behavioral_consumer_started")
+
+    try:
+        while True:
+            await process_session_events(redis_client)
+    finally:
+        await close_redis()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    asyncio.run(run_consumer_loop())

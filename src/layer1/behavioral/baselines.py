@@ -9,6 +9,8 @@ Tracks rolling means and standard deviations for session metrics:
 
 from pydantic import BaseModel, Field
 
+from src.layer1.behavioral.metrics import extract_metric_value
+
 TRACKED_METRICS = ["dead_end_count", "tool_invocations", "cost_usd", "duration_ms"]
 EWMA_ALPHA = 2 / (20 + 1)  # Equivalent to pandas EWMA span=20
 
@@ -48,7 +50,7 @@ def update_baseline(current: AgentBaseline | None, session_metrics: dict) -> Age
     new_metrics: dict[str, MetricStats] = {}
 
     for metric_name in TRACKED_METRICS:
-        value = _extract_metric_value(session_metrics, metric_name)
+        value = extract_metric_value(session_metrics, metric_name)
         old = current.metrics.get(metric_name, MetricStats())
 
         if old.count == 0:
@@ -67,20 +69,3 @@ def update_baseline(current: AgentBaseline | None, session_metrics: dict) -> Age
             )
 
     return AgentBaseline(metrics=new_metrics, total_sessions=current.total_sessions + 1)
-
-
-def _extract_metric_value(session_metrics: dict, metric_name: str) -> float:
-    """Extract a numeric metric value from session data.
-
-    Args:
-        session_metrics: Raw session metrics dict.
-        metric_name: Name of the metric to extract.
-
-    Returns:
-        Float value of the metric.
-    """
-    if metric_name == "tool_invocations":
-        # Can be a list (count it) or an int
-        val = session_metrics.get(metric_name, 0)
-        return float(len(val)) if isinstance(val, list) else float(val)
-    return float(session_metrics.get(metric_name, 0))

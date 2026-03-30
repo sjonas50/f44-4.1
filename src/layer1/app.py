@@ -20,7 +20,6 @@ logger = structlog.get_logger()
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan: initialize and cleanup resources."""
     logger.info("layer1_starting")
-    # Redis and DB pool initialization would go here in production
     yield
     logger.info("layer1_stopping")
 
@@ -43,4 +42,21 @@ app.include_router(circuit_breaker_router)
 @app.get("/health")
 async def health() -> dict:
     """Health check endpoint."""
-    return {"status": "healthy", "service": "layer1"}
+    redis_ok = False
+    db_ok = False
+
+    try:
+        from src.shared.redis_client.client import get_redis_client
+
+        client = get_redis_client()
+        await client.ping()
+        redis_ok = True
+    except Exception:
+        pass
+
+    return {
+        "status": "healthy" if redis_ok else "degraded",
+        "service": "layer1",
+        "redis_connected": redis_ok,
+        "db_connected": db_ok,
+    }

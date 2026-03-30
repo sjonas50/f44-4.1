@@ -1,9 +1,11 @@
 """CircuitBreaker FastAPI router."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/circuit-breaker", tags=["circuit-breaker"])
+from src.shared.middleware.auth import require_admin
+
+router = APIRouter(prefix="/circuit-breaker", tags=["circuit-breaker"], dependencies=[Depends(require_admin)])
 
 
 class BulkRevokeRequest(BaseModel):

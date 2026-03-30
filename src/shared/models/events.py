@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import Field
@@ -11,7 +11,7 @@ class BaseEvent(BaseEntity):
 
     event_type: str
     agent_id: UUID
-    timestamp: datetime = Field(default_factory=lambda: __import__("datetime").datetime.now(__import__("datetime").UTC))
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class AgentRegistered(BaseEvent):

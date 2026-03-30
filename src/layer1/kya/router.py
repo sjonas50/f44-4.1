@@ -5,10 +5,12 @@ Provides the REST API that ASOR's CPE pre-check calls for agent lookup.
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/kya", tags=["kya"])
+from src.shared.middleware.auth import require_auth
+
+router = APIRouter(prefix="/kya", tags=["kya"], dependencies=[Depends(require_auth)])
 
 
 class RegisterAgentRequest(BaseModel):

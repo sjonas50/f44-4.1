@@ -66,9 +66,20 @@ async def update_agent(conn: asyncpg.Connection, agent_id: UUID, updates: dict) 
     if not updates:
         return await get_agent(conn, agent_id)
 
+    allowed_columns = {
+        "status",
+        "trust_tier",
+        "human_authorizer_id",
+        "kya_verified_at",
+        "metadata",
+        "updated_at",
+    }
+
     set_clauses = []
     values = []
     for i, (key, value) in enumerate(updates.items(), start=1):
+        if key not in allowed_columns:
+            raise ValueError(f"Cannot update column: {key}")
         set_clauses.append(f"{key} = ${i}")
         values.append(value)
 

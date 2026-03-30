@@ -8,6 +8,7 @@ pure (no I/O), testable in isolation.
 import math
 
 from src.layer1.behavioral.baselines import TRACKED_METRICS, AgentBaseline
+from src.layer1.behavioral.metrics import extract_metric_value
 
 COLD_START_THRESHOLD = 5  # Minimum sessions before scoring is meaningful
 COLD_START_SCORE = 0.5
@@ -32,7 +33,7 @@ def compute_z_scores(baseline: AgentBaseline, session_metrics: dict) -> dict[str
             z_scores[metric_name] = 0.0
             continue
 
-        value = _extract_value(session_metrics, metric_name)
+        value = extract_metric_value(session_metrics, metric_name)
         z = (value - stats.mean) / stats.std
         z_scores[metric_name] = max(-Z_SCORE_CLIP, min(Z_SCORE_CLIP, z))
 
@@ -69,11 +70,3 @@ def cold_start_score() -> float:
         0.5 (neutral — neither trusted nor suspicious).
     """
     return COLD_START_SCORE
-
-
-def _extract_value(session_metrics: dict, metric_name: str) -> float:
-    """Extract numeric metric value from session data."""
-    if metric_name == "tool_invocations":
-        val = session_metrics.get(metric_name, 0)
-        return float(len(val)) if isinstance(val, list) else float(val)
-    return float(session_metrics.get(metric_name, 0))

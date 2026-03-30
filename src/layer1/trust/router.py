@@ -5,10 +5,12 @@ GET /trust/tier/{agent_id} is the endpoint ASOR's risk scorer calls.
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-router = APIRouter(prefix="/trust", tags=["trust"])
+from src.shared.middleware.auth import require_auth
+
+router = APIRouter(prefix="/trust", tags=["trust"], dependencies=[Depends(require_auth)])
 
 
 class TierResponse(BaseModel):
