@@ -367,22 +367,40 @@ See `docs/review-report.md` for the full security audit.
 
 ## Roadmap
 
-This is the MVP build. See `docs/build-plan.md` for the full phased plan.
+### What's Built (MVP Complete)
 
-**Remaining integration work:**
-- Wire Layer 1 router endpoints to service layer (currently 501)
-- Initialize DB connection pool in Layer 1 app lifespan
-- ASOR VC Engine HTTP client call on agent registration
-- S3 WORM production writes (boto3 with Object Lock)
-- Vault Transit integration for batch signing
+- Layer 1: All endpoints wired and serving (KYA, Trust, Behavioral, CircuitBreaker)
+- Layer 3: Reasoning Capture SDK (12 record types), session pipeline (store → batch → feedback), REST API
+- On-chain: BatchAnchor.sol ready to deploy, production anchor submitter (EIP-1559, eth-account), periodic scheduler
+- Infrastructure: JWT auth, DB pool, Redis init, structured logging, error handling, Helm values, CI pipeline, Docker
 
-**Phase 2 expansion paths** (customer-driven, not speculative):
+### Remaining Integration Work (Tier 2-4)
+
+**Tier 2 — ASOR Integration Seams** (~2 days):
+- KYA calls ASOR VC Engine on agent registration (httpx call to `ASOR_VC_ENDPOINT`)
+- KYA populates trust tier Redis cache on registration (`TrustService.set_tier()`)
+- Consolidate stream names (`stream:trust_event` vs `stream:trust_tier_change`)
+- Trust/registration event consumer → enqueues `BatchRecord`s to anchor queue
+
+**Tier 3 — Production Infrastructure** (~3 days):
+- S3 WORM production writes (`aiobotocore` with Object Lock Compliance mode)
+- Vault Transit integration for ECDSA P-256 batch signing (`shared/crypto/vault.py`)
+- Ed25519/ECDSA signing utilities (`shared/crypto/signing.py`)
+
+**Tier 4 — Operational Completeness** (~1 day):
+- CircuitBreaker auto-triggered by BAE anomaly threshold breach
+- BAE consumes ASOR's existing drift detection signals
+- Configurable stream names and cache TTLs (currently hardcoded)
+- OpenZeppelin `Ownable2Step` for contract ownership transfer
+
+### Phase 2 Expansion Paths (customer-driven, not speculative)
+
 - Permissioned validator set (Avalanche Subnet / Hyperledger Besu) for consortium customers
 - Full smart contracts (AccountFactory, on-chain CircuitBreaker) for wallet-level agent identity
 - ML-based behavioral analysis replacing statistical baselines
 - Git-native provenance storage (Engram architecture)
 - Multi-chain anchoring for redundant integrity proofs
-- OpenZeppelin `Ownable2Step` for safe contract ownership transfer
+- Verification API extension: on-chain tx hash + cross-layer inclusion proofs
 
 ## License
 
