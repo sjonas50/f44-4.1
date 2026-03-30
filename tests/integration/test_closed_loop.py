@@ -108,4 +108,4 @@ class TestClosedLoop:
         assert records[0]["type"] == "step"
         assert records[1]["type"] == "tool_invocation"
         assert records[2]["type"] == "decision"
-        assert records[3]["type"] == "step"  # dead end
+        assert records[3]["type"] == "dead_end"

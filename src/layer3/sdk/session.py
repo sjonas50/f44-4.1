@@ -64,31 +64,55 @@ class SessionManager:
         self._check_active()
         self._capture.record_step(description, metadata)
 
-    def record_tool_invocation(
-        self,
-        tool_name: str,
-        inputs: dict | None = None,
-        outputs: dict | None = None,
-        cost_usd: float = 0.0,
-    ) -> None:
-        """Record a tool invocation."""
+    def record_tool_invocation(self, tool_name: str, **kwargs) -> None:
+        """Record a tool invocation. Accepts all ProvenanceCapture.record_tool_invocation kwargs."""
         self._check_active()
-        self._capture.record_tool_invocation(tool_name, inputs, outputs, cost_usd)
+        self._capture.record_tool_invocation(tool_name, **kwargs)
 
-    def record_decision(
-        self,
-        decision: str,
-        alternatives_considered: list[str] | None = None,
-        rationale: str = "",
-    ) -> None:
-        """Record a decision point."""
+    def record_decision(self, decision: str, **kwargs) -> None:
+        """Record a decision point. Accepts all ProvenanceCapture.record_decision kwargs."""
         self._check_active()
-        self._capture.record_decision(decision, alternatives_considered, rationale)
+        self._capture.record_decision(decision, **kwargs)
 
-    def record_dead_end(self, description: str = "") -> None:
+    def record_dead_end(self, description: str = "", reason: str = "") -> None:
         """Record a dead-end in reasoning."""
         self._check_active()
-        self._capture.record_dead_end(description)
+        self._capture.record_dead_end(description, reason)
+
+    def record_thought(self, thought: str, **kwargs) -> None:
+        """Record the agent's internal reasoning/chain-of-thought."""
+        self._check_active()
+        self._capture.record_thought(thought, **kwargs)
+
+    def record_observation(self, observation: str, **kwargs) -> None:
+        """Record what the agent observed."""
+        self._check_active()
+        self._capture.record_observation(observation, **kwargs)
+
+    def record_error(self, error_type: str, message: str, **kwargs) -> None:
+        """Record an error encountered during reasoning."""
+        self._check_active()
+        self._capture.record_error(error_type, message, **kwargs)
+
+    def record_guardrail_check(self, guardrail_name: str, check_type: str, blocked: bool, **kwargs) -> None:
+        """Record a guardrail or policy check."""
+        self._check_active()
+        self._capture.record_guardrail_check(guardrail_name, check_type, blocked, **kwargs)
+
+    def record_delegation(self, delegate_agent_id: str, task: str, **kwargs) -> None:
+        """Record delegation to a sub-agent."""
+        self._check_active()
+        self._capture.record_delegation(delegate_agent_id, task, **kwargs)
+
+    def record_llm_call(self, model: str, **kwargs) -> None:
+        """Record an LLM API call."""
+        self._check_active()
+        self._capture.record_llm_call(model, **kwargs)
+
+    def record_goal(self, goal: str, **kwargs) -> None:
+        """Record a goal or sub-goal."""
+        self._check_active()
+        self._capture.record_goal(goal, **kwargs)
 
     async def end_session(self) -> SessionSummary:
         """End the session and execute the full provenance pipeline.

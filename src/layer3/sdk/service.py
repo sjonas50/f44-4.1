@@ -120,10 +120,11 @@ class SessionService:
         inputs: dict | None = None,
         outputs: dict | None = None,
         cost_usd: float = 0.0,
+        **kwargs,
     ) -> None:
         """Record a tool invocation in an active session."""
         sm = self.get_session(session_id)
-        sm.record_tool_invocation(tool_name, inputs, outputs, cost_usd)
+        sm.record_tool_invocation(tool_name, inputs=inputs, outputs=outputs, cost_usd=cost_usd, **kwargs)
 
     def record_decision(
         self,
@@ -131,10 +132,11 @@ class SessionService:
         decision: str,
         alternatives_considered: list[str] | None = None,
         rationale: str = "",
+        **kwargs,
     ) -> None:
         """Record a decision in an active session."""
         sm = self.get_session(session_id)
-        sm.record_decision(decision, alternatives_considered, rationale)
+        sm.record_decision(decision, alternatives_considered=alternatives_considered, rationale=rationale, **kwargs)
 
     def record_dead_end(self, session_id: str, description: str = "") -> None:
         """Record a dead end in an active session."""
