@@ -398,7 +398,6 @@ See `docs/review-report.md` for the full security audit.
 - Permissioned validator set (Avalanche Subnet / Hyperledger Besu) for consortium customers
 - Full smart contracts (AccountFactory, on-chain CircuitBreaker) for wallet-level agent identity
 - ML-based behavioral analysis replacing statistical baselines
-- Git-native provenance storage (Engram architecture)
 - Multi-chain anchoring for redundant integrity proofs
 - Verification API extension: on-chain tx hash + cross-layer inclusion proofs
 
