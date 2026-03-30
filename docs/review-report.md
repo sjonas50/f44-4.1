@@ -1,61 +1,58 @@
 # Code Review Report
-**Date:** 2026-03-29
-**Status:** PASS WITH NOTES
+**Date:** 2026-03-29 (initial), 2026-03-30 (updated after fixes)
+**Status:** PASS
 
-## Critical Issues (must fix)
+## Resolved Issues
 
-1. **SQL injection via dynamic column names** — `/Users/sjonas/F44-4.1/src/layer1/kya/repository.py:72` — `update_agent()` builds column names from `updates.keys()` directly into an f-string SQL query without validation; an attacker controlling the `updates` dict keys can inject arbitrary SQL column expressions. Values are parameterized but keys are not.
+All critical and most warning-level issues from the initial review have been fixed:
 
-2. **No authentication on any API endpoint** — All routers (`/kya/*`, `/trust/*`, `/behavioral/*`, `/circuit-breaker/*`) have zero auth guards. The circuit-breaker activate/bulk-revoke endpoints are especially dangerous since they can revoke credentials platform-wide. `JWT_SIGNING_KEY` is defined in settings but never used.
+| # | Issue | Resolution | Commit |
+|---|---|---|---|
+| **Crit-1** | SQL injection via dynamic column names in `update_agent()` | Column allowlist validation added | `736345f` |
+| **Crit-2** | No authentication on any API endpoint | JWT middleware (`require_auth`) on all routes, `require_admin` on circuit-breaker | `736345f` |
+| **Crit-3** | `events.py` double `__import__` hack | Replaced with proper `from datetime import UTC` | `736345f` |
+| **Warn-2** | Duplicated `_extract_metric_value` functions | Shared `metrics.py` module | `736345f` |
+| **Warn-4** | Placeholder function selector `0xa1b2c3d4` | Real Keccak-256 via `eth_utils.function_signature_to_4byte_selector` | `9d651e8` |
+| **Warn-5** | `ljust` right-padding for bytes32 | Proper ABI encoding via `eth_abi.encode` | `9d651e8` |
+| **Warn-7** | Sync I/O in async `storage.py` | Wrapped in `asyncio.to_thread()` | `736345f` |
+| **Warn-8** | Path traversal risk in `storage.py` | Regex validation `[a-zA-Z0-9-]` on session_id | `736345f` |
+| **Warn-10** | `consumer.py` no `__main__` block | Added `run_consumer_loop()` + `if __name__ == "__main__"` | `736345f` |
+| **Sug-1** | No README | Comprehensive README added | `16a110c` |
+| **Sug-2** | Layer 3 app has no routers | `/sessions` and `/anchor` routers mounted | `736345f` |
 
-3. **`events.py` timestamp uses double `__import__` hack** — `/Users/sjonas/F44-4.1/src/shared/models/events.py:14` — `Field(default_factory=lambda: __import__("datetime").datetime.now(__import__("datetime").UTC))` is fragile and unnecessary; `datetime` is already imported at line 1.
+## Remaining Open Items
 
-## Warnings (should fix)
+### Warnings (should fix before production)
 
-1. **Hardcoded Postgres password in docker-compose.yml** — `/Users/sjonas/F44-4.1/docker-compose.yml:6` — `POSTGRES_PASSWORD: sovereign_dev` is a plaintext credential. Use env vars or Docker secrets even for development.
+1. **Hardcoded Postgres password in docker-compose.yml** — `POSTGRES_PASSWORD: sovereign_dev` is a plaintext credential. Acceptable for local dev but should use env vars or Docker secrets for any shared environment.
 
-2. **Duplicated `_extract_value` / `_extract_metric_value` functions** — `/Users/sjonas/F44-4.1/src/layer1/behavioral/scoring.py:74` and `/Users/sjonas/F44-4.1/src/layer1/behavioral/baselines.py:72` — identical logic, should be one shared function.
+2. **Exception swallowed in behavioral consumer** — `src/layer1/behavioral/consumer.py` — bare `except Exception` catches everything but only logs it. A corrupt message will silently fail without being NACKed or moved to a dead-letter queue. Consider adding a dead-letter stream for unprocessable messages.
 
-3. **Exception swallowed in consumer** — `/Users/sjonas/F44-4.1/src/layer1/behavioral/consumer.py:97` — bare `except Exception` catches everything but only logs it; a corrupt message will silently fail without being NACKed or moved to a dead-letter queue, risking data loss.
+3. **No rate limiting on security-critical endpoints** — `/circuit-breaker/activate` and `/circuit-breaker/bulk-revoke` have no throttling. Admin-only auth mitigates risk, but a compromised admin token could fire unlimited revocations.
 
-4. **Placeholder function selector in anchor submitter** — `/Users/sjonas/F44-4.1/src/layer3/pipeline/anchor_submitter.py:149` — `selector = "0xa1b2c3d4"` is a fake value; calling the real contract will silently invoke the wrong function or revert.
+4. **Dependencies use range pins** — `pyproject.toml` uses `>=x.y,<z` ranges. The lock file (`uv.lock`) ensures reproducible builds, but consider tightening pins before production deployment.
 
-5. **`_encode_anchor_call` uses `ljust` for hex padding** — `/Users/sjonas/F44-4.1/src/layer3/pipeline/anchor_submitter.py:150-151` — `ljust(64, "0")` pads right instead of left; ABI encoding requires left-zero-padding for `bytes32`. This will produce incorrect calldata.
+### Suggestions (nice to have)
 
-6. **No rate limiting on security-critical endpoints** — `/circuit-breaker/activate` and `/circuit-breaker/bulk-revoke` have no throttling.
+1. **Request-scoped `request_id` is truncated to 8 chars** — `src/shared/middleware/logging.py` — `str(uuid.uuid4())[:8]` gives 32 bits of entropy. Low collision risk at expected scale but consider full UUID for production.
 
-7. **`storage.py` local write is sync I/O in an async function** — `/Users/sjonas/F44-4.1/src/layer3/sdk/storage.py:46-58` — `Path.mkdir()`, `Path.write_text()` are blocking calls inside an `async def` function; will block the event loop.
+2. **No dedicated test for `storage.py`** — Local filesystem write path is tested indirectly via session wired tests, but S3 WORM write path (`_write_s3`) is a stub with no test.
 
-8. **`storage.py` path traversal risk** — `/Users/sjonas/F44-4.1/src/layer3/sdk/storage.py:45` — `session_id` is passed directly into `Path("provenance") / session_id` with no sanitization; a crafted `session_id` like `../../etc` could write outside the intended directory.
+3. **No dedicated test for `error_handling.py`** — Exception handlers (`NotFoundError → 404`, `AnchorSubmissionError → 503 + Retry-After`, unhandled → 500) lack direct tests.
 
-9. **Dependencies use range pins, not exact pins** — `/Users/sjonas/F44-4.1/pyproject.toml:7-23` — e.g., `"fastapi>=0.115.0,<1.0.0"`. The lock file (`uv.lock`) mitigates this for reproducible builds, but `pyproject.toml` alone allows resolution drift.
+4. **`conftest.py` root fixtures are dead code** — Root `conftest.py` defines `redis_client` as `AsyncMock`, but all test classes override with `fakeredis`.
 
-10. **`consumer.py` has no `__main__` block** — `/Users/sjonas/F44-4.1/src/layer1/behavioral/consumer.py` — Dockerfile runs `python -m src.layer1.behavioral.consumer` but the module has no `if __name__ == "__main__"` entry point; container will start and immediately exit.
+5. **`metadata` field on `AgentModel` is untyped `dict`** — Could accept arbitrary nested structures. Consider a constrained Pydantic model if the schema stabilizes.
 
-## Suggestions (nice to have)
+6. **`agent_type` field has no validation** — Free-form string. Consider an enum or regex constraint when agent types are defined.
 
-1. **Add `README.md`** — No README exists; the `CLAUDE.md` serves as project documentation but a standard README would help onboarding.
+7. **Anchor contract has no ownership transfer** — `owner` is `immutable`. If the deployer key is compromised, the contract must be redeployed. OpenZeppelin `Ownable2Step` is on the roadmap.
 
-2. **Layer 3 app has no routers mounted** — `/Users/sjonas/F44-4.1/src/layer3/app.py` — only a health check is available; none of the Layer 3 services (session, capture, pipeline) have routers.
-
-3. **Request-scoped `request_id` is truncated to 8 chars** — `/Users/sjonas/F44-4.1/src/shared/middleware/logging.py:28` — `str(uuid.uuid4())[:8]` gives only 32 bits of entropy; collision risk grows beyond ~65K concurrent requests.
-
-4. **No test for `storage.py`** — Local filesystem and S3 write paths are untested.
-
-5. **No test for `error_handling.py` exception handlers** — The global exception handlers (`NotFoundError`, `ValidationError`, unhandled `Exception`) lack dedicated tests.
-
-6. **`conftest.py` fixtures shadow each other** — The root `conftest.py` defines `redis_client` as an `AsyncMock`, but multiple test classes override it with `fakeredis`; the root fixture is effectively dead code.
-
-7. **`metadata` field on `AgentModel` is untyped `dict`** — `/Users/sjonas/F44-4.1/src/shared/models/agent.py:34` — could accept arbitrary nested structures; consider a constrained Pydantic model.
-
-8. **`agent_type` field on `AgentModel` has no validation** — `/Users/sjonas/F44-4.1/src/shared/models/agent.py:29` — free-form string; consider an enum or regex constraint.
-
-9. **Anchor contract has no ownership transfer mechanism** — `/Users/sjonas/F44-4.1/anchor/contracts/src/BatchAnchor.sol:9` — `owner` is `immutable`; if the deployer key is compromised, the contract must be redeployed.
-
-10. **Consider adding `py.typed` marker** — For downstream consumers to get type checking support.
+8. **Consider adding `py.typed` marker** — For downstream type checking support.
 
 ## Metrics
-- Files reviewed: 46 (34 Python source + 9 test + Dockerfile + docker-compose.yml + Solidity)
-- Test count: 110 (110 passed, 0 failed)
+- Files reviewed: 80 (46 Python source + 14 test + Dockerfile + docker-compose + Solidity + Helm + CI)
+- Test count: 170 (170 passed, 0 failed)
 - Ruff violations: 0
-- Security issues: 2 critical, 8 warning
+- Pyright errors: 0 (CI passing)
+- Security issues: 0 critical, 4 warning (down from 2 critical + 8 warning)
