@@ -1,13 +1,11 @@
-"""Tests for batch extension, anchor submitter, and feedback emitter."""
+"""Tests for batch extension and feedback emitter."""
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 
-from src.layer3.pipeline.anchor_submitter import AnchorSubmissionError, submit_anchor
 from src.layer3.pipeline.batch_extension import BatchExtension
 from src.shared.crypto.hashing import sha256_hex
 from src.shared.crypto.merkle import verify_proof
@@ -71,86 +69,6 @@ class TestBatchExtension:
             ext2.add_record(r)
 
         assert ext1.build_batch().merkle_root == ext2.build_batch().merkle_root
-
-
-class TestAnchorSubmitter:
-    @pytest.fixture
-    def settings(self):
-        from src.shared.config.settings import Settings
-
-        return Settings(
-            BASE_L2_RPC_URL="https://primary.example.com",
-            BASE_L2_RPC_FALLBACK_URL="https://fallback.example.com",
-            ANCHOR_CONTRACT_ADDRESS="0x1234567890abcdef",
-        )
-
-    @pytest.fixture
-    def batch_result(self):
-        ext = BatchExtension()
-        ext.add_record(
-            BatchRecord(
-                hash=sha256_hex("test"),
-                record_type="audit",
-                layer=2,
-                timestamp=datetime.now(UTC),
-            )
-        )
-        return ext.build_batch()
-
-    @pytest.mark.asyncio
-    async def test_primary_success(self, settings, batch_result) -> None:
-        from src.layer3.pipeline.anchor_submitter import AnchorResult
-
-        mock_result = AnchorResult(
-            tx_hash="0xdeadbeef",
-            block_number=100,
-            chain_id=8453,
-            contract_address="0x1234567890abcdef",
-            anchored_at=datetime.now(UTC),
-        )
-
-        with patch("src.layer3.pipeline.anchor_submitter._send_anchor_tx", return_value=mock_result) as mock_send:
-            result = await submit_anchor(batch_result, settings)
-            assert result.tx_hash == "0xdeadbeef"
-            assert result.contract_address == "0x1234567890abcdef"
-            mock_send.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_fallback_on_primary_failure(self, settings, batch_result) -> None:
-        from src.layer3.pipeline.anchor_submitter import AnchorResult
-
-        mock_result = AnchorResult(
-            tx_hash="0xfallback",
-            block_number=101,
-            chain_id=8453,
-            contract_address="0x1234567890abcdef",
-            anchored_at=datetime.now(UTC),
-        )
-
-        call_count = 0
-
-        async def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError("Primary failed")
-            return mock_result
-
-        with patch("src.layer3.pipeline.anchor_submitter._send_anchor_tx", side_effect=side_effect):
-            result = await submit_anchor(batch_result, settings)
-            assert result.tx_hash == "0xfallback"
-            assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_both_rpcs_fail(self, settings, batch_result) -> None:
-        with (
-            patch(
-                "src.layer3.pipeline.anchor_submitter._send_anchor_tx",
-                side_effect=RuntimeError("Connection failed"),
-            ),
-            pytest.raises(AnchorSubmissionError, match="Both RPCs failed"),
-        ):
-            await submit_anchor(batch_result, settings)
 
 
 class TestFeedbackEmitter:

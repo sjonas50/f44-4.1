@@ -20,6 +20,9 @@ dependencies = [
     "pydantic-settings>=2.5.0",
     "structlog>=24.0.0",
     "python-dotenv>=1.0.0",
+    "eth-account>=0.13.0,<0.14",
+    "eth-abi>=5.0.0,<6",
+    "eth-utils>=5.0.0,<6",
 ]
 
 [project.optional-dependencies]

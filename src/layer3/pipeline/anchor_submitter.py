@@ -1,13 +1,18 @@
 """Anchor submitter — commits batch Merkle roots to Base L2.
 
-Calls the anchor contract's anchorBatch(merkleRoot, metadataHash, batchId)
-via JSON-RPC to the Base L2. Uses Alchemy as primary RPC with QuickNode fallback.
+Signs EIP-1559 transactions locally using eth-account and submits via
+eth_sendRawTransaction to Alchemy (primary) or QuickNode (fallback).
+No web3.py dependency — minimal stack: eth-account + eth-abi + httpx.
 """
 
+import asyncio
 from datetime import UTC, datetime
 
 import httpx
 import structlog
+from eth_abi import encode
+from eth_account import Account
+from eth_utils import function_signature_to_4byte_selector
 from pydantic import BaseModel
 
 from src.layer3.pipeline.batch_extension import BatchResult
@@ -15,6 +20,9 @@ from src.shared.config.settings import Settings
 from src.shared.crypto.hashing import sha256_hex
 
 logger = structlog.get_logger()
+
+# Correct Keccak-256 selector for anchorBatch(bytes32,bytes32,uint256)
+ANCHOR_BATCH_SELECTOR = function_signature_to_4byte_selector("anchorBatch(bytes32,bytes32,uint256)")
 
 
 class AnchorResult(BaseModel):
@@ -25,6 +33,7 @@ class AnchorResult(BaseModel):
     chain_id: int
     contract_address: str
     anchored_at: datetime
+    gas_used: int = 0
 
 
 class AnchorSubmissionError(Exception):
@@ -34,11 +43,12 @@ class AnchorSubmissionError(Exception):
 async def submit_anchor(batch_result: BatchResult, settings: Settings) -> AnchorResult:
     """Submit a batch Merkle root to the Base L2 anchor contract.
 
+    Signs the transaction locally and submits via eth_sendRawTransaction.
     Tries primary RPC (Alchemy), falls back to QuickNode on failure.
 
     Args:
         batch_result: The built batch with Merkle root.
-        settings: Application settings with RPC URLs and contract address.
+        settings: Application settings with RPC URLs, contract address, and deployer key.
 
     Returns:
         AnchorResult with tx hash and chain metadata.
@@ -46,127 +56,201 @@ async def submit_anchor(batch_result: BatchResult, settings: Settings) -> Anchor
     Raises:
         AnchorSubmissionError: If both RPCs fail.
     """
-    metadata_hash = sha256_hex(f"{batch_result.batch_id}:{batch_result.record_count}")
+    if not settings.DEPLOYER_PRIVATE_KEY:
+        raise AnchorSubmissionError("DEPLOYER_PRIVATE_KEY not configured")
+    if not settings.ANCHOR_CONTRACT_ADDRESS:
+        raise AnchorSubmissionError("ANCHOR_CONTRACT_ADDRESS not configured")
+
+    calldata = _encode_anchor_call(batch_result)
 
     primary_error: Exception | None = None
 
-    # Try primary RPC
-    try:
-        return await _send_anchor_tx(
-            rpc_url=settings.BASE_L2_RPC_URL,
-            contract_address=settings.ANCHOR_CONTRACT_ADDRESS,
-            merkle_root=batch_result.merkle_root,
-            metadata_hash=metadata_hash,
-            batch_id=batch_result.batch_id,
-        )
-    except Exception as err:
-        primary_error = err
-        logger.warning("primary_rpc_failed", error=str(err))
+    for rpc_url in [settings.BASE_L2_RPC_URL, settings.BASE_L2_RPC_FALLBACK_URL]:
+        if not rpc_url:
+            continue
+        try:
+            return await _sign_and_send(
+                rpc_url=rpc_url,
+                contract_address=settings.ANCHOR_CONTRACT_ADDRESS,
+                calldata=calldata,
+                private_key=settings.DEPLOYER_PRIVATE_KEY,
+                chain_id=settings.BASE_CHAIN_ID,
+            )
+        except Exception as err:
+            if primary_error is None:
+                primary_error = err
+                logger.warning("primary_rpc_failed", error=str(err), rpc=rpc_url)
+            else:
+                logger.error("fallback_rpc_failed", error=str(err), rpc=rpc_url)
+                raise AnchorSubmissionError(f"Both RPCs failed. Primary: {primary_error}, Fallback: {err}") from err
 
-    # Try fallback RPC
-    try:
-        return await _send_anchor_tx(
-            rpc_url=settings.BASE_L2_RPC_FALLBACK_URL,
-            contract_address=settings.ANCHOR_CONTRACT_ADDRESS,
-            merkle_root=batch_result.merkle_root,
-            metadata_hash=metadata_hash,
-            batch_id=batch_result.batch_id,
-        )
-    except Exception as fallback_err:
-        logger.error("fallback_rpc_failed", error=str(fallback_err))
-        raise AnchorSubmissionError(
-            f"Both RPCs failed. Primary: {primary_error}, Fallback: {fallback_err}"
-        ) from fallback_err
+    raise AnchorSubmissionError(f"No valid RPC URLs configured. Last error: {primary_error}")
 
 
-async def _send_anchor_tx(
-    rpc_url: str,
-    contract_address: str,
-    merkle_root: str,
-    metadata_hash: str,
-    batch_id: str,
-) -> AnchorResult:
-    """Send the anchor transaction via JSON-RPC.
+def _encode_anchor_call(batch_result: BatchResult) -> bytes:
+    """Encode the anchorBatch(bytes32, bytes32, uint256) calldata.
 
     Args:
-        rpc_url: Ethereum JSON-RPC endpoint.
-        contract_address: Anchor contract address.
-        merkle_root: Merkle root hex string.
-        metadata_hash: Metadata hash hex string.
-        batch_id: Batch identifier.
+        batch_result: Batch with merkle_root, batch_id, and record_count.
 
     Returns:
-        AnchorResult on success.
+        ABI-encoded calldata bytes.
     """
-    # Encode anchorBatch(bytes32, bytes32, uint256) call data
-    # Function selector: keccak256("anchorBatch(bytes32,bytes32,uint256)")[:4]
-    # For now, we build the raw tx payload structure
-    payload = {
-        "jsonrpc": "2.0",
-        "method": "eth_sendTransaction",
-        "params": [
-            {
-                "to": contract_address,
-                "data": _encode_anchor_call(merkle_root, metadata_hash, batch_id),
-            }
-        ],
-        "id": 1,
-    }
+    # Convert hex strings to bytes32
+    merkle_root = bytes.fromhex(batch_result.merkle_root[:64].ljust(64, "0"))
+    metadata_hash_hex = sha256_hex(f"{batch_result.batch_id}:{batch_result.record_count}")
+    metadata_hash = bytes.fromhex(metadata_hash_hex[:64])
+
+    # Convert batch_id string to uint256 (hash it to get a deterministic number)
+    batch_id_int = int(sha256_hex(batch_result.batch_id)[:16], 16)
+
+    # ABI encode: selector + encode(bytes32, bytes32, uint256)
+    encoded_args = encode(
+        ["bytes32", "bytes32", "uint256"],
+        [merkle_root, metadata_hash, batch_id_int],
+    )
+
+    return ANCHOR_BATCH_SELECTOR + encoded_args
+
+
+async def _sign_and_send(
+    rpc_url: str,
+    contract_address: str,
+    calldata: bytes,
+    private_key: str,
+    chain_id: int,
+) -> AnchorResult:
+    """Sign an EIP-1559 transaction locally and submit via eth_sendRawTransaction.
+
+    Args:
+        rpc_url: Ethereum JSON-RPC endpoint (Alchemy, QuickNode, etc.).
+        contract_address: Deployed BatchAnchor contract address.
+        calldata: ABI-encoded function call bytes.
+        private_key: Hex private key for signing.
+        chain_id: EVM chain ID (8453 for Base mainnet, 84532 for Base Sepolia).
+
+    Returns:
+        AnchorResult with tx hash and chain metadata.
+    """
+    account = Account.from_key(private_key)
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(rpc_url, json=payload)
-        response.raise_for_status()
-        result = response.json()
+        # Get nonce
+        nonce = await _rpc_call(client, rpc_url, "eth_getTransactionCount", [account.address, "pending"])
+        nonce_int = int(nonce, 16)
 
-        if "error" in result:
-            raise RuntimeError(f"RPC error: {result['error']}")
+        # Get current base fee from latest block
+        latest_block = await _rpc_call(client, rpc_url, "eth_getBlockByNumber", ["latest", False])
+        base_fee = int(latest_block["baseFeePerGas"], 16)
 
-        tx_hash = result.get("result", "0x0")
+        # EIP-1559 gas params: maxFeePerGas = 2 * baseFee + tip (safe margin for Base L2)
+        max_priority_fee = 1_000_000  # 0.001 gwei — Base sequencer accepts near-zero tips
+        max_fee_per_gas = base_fee * 2 + max_priority_fee
 
-    logger.info("anchor_submitted", tx_hash=tx_hash, batch_id=batch_id)
+        # Estimate gas
+        gas_estimate_hex = await _rpc_call(
+            client,
+            rpc_url,
+            "eth_estimateGas",
+            [{"from": account.address, "to": contract_address, "data": "0x" + calldata.hex()}],
+        )
+        gas_limit = int(gas_estimate_hex, 16) + 10_000  # Small buffer
+
+        # Build EIP-1559 (Type 2) transaction
+        tx = {
+            "type": 2,
+            "chainId": chain_id,
+            "nonce": nonce_int,
+            "to": contract_address,
+            "data": calldata,
+            "gas": gas_limit,
+            "maxFeePerGas": max_fee_per_gas,
+            "maxPriorityFeePerGas": max_priority_fee,
+            "value": 0,
+        }
+
+        # Sign locally
+        signed = Account.sign_transaction(tx, private_key)
+        raw_tx_hex = "0x" + signed.raw_transaction.hex()
+
+        # Submit
+        tx_hash = await _rpc_call(client, rpc_url, "eth_sendRawTransaction", [raw_tx_hex])
+
+        logger.info("anchor_tx_submitted", tx_hash=tx_hash, nonce=nonce_int, gas_limit=gas_limit)
+
+        # Poll for receipt (up to 60 seconds)
+        receipt = await _wait_for_receipt(client, rpc_url, tx_hash, timeout_seconds=60)
+
+    block_number = int(receipt["blockNumber"], 16) if receipt else 0
+    gas_used = int(receipt["gasUsed"], 16) if receipt else 0
+    status = int(receipt["status"], 16) if receipt else 0
+
+    if receipt and status != 1:
+        raise RuntimeError(f"Transaction reverted: {tx_hash}")
+
+    logger.info(
+        "anchor_confirmed",
+        tx_hash=tx_hash,
+        block=block_number,
+        gas_used=gas_used,
+    )
 
     return AnchorResult(
         tx_hash=tx_hash,
-        block_number=0,  # Would be populated by tx receipt polling
-        chain_id=8453,  # Base mainnet
+        block_number=block_number,
+        chain_id=chain_id,
         contract_address=contract_address,
         anchored_at=datetime.now(UTC),
+        gas_used=gas_used,
     )
 
 
-def _compute_selector(signature: str) -> str:
-    """Compute the 4-byte function selector from a Solidity signature.
+async def _rpc_call(client: httpx.AsyncClient, rpc_url: str, method: str, params: list) -> dict | str:
+    """Make a JSON-RPC call and return the result.
+
+    Raises:
+        RuntimeError: If the RPC returns an error.
+    """
+    payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+    response = await client.post(rpc_url, json=payload)
+    response.raise_for_status()
+    data = response.json()
+
+    if "error" in data:
+        raise RuntimeError(f"RPC error ({method}): {data['error']}")
+
+    return data["result"]
+
+
+async def _wait_for_receipt(
+    client: httpx.AsyncClient,
+    rpc_url: str,
+    tx_hash: str,
+    timeout_seconds: int = 60,
+    poll_interval: float = 2.0,
+) -> dict | None:
+    """Poll for transaction receipt until confirmed or timeout.
 
     Args:
-        signature: Function signature, e.g. "anchorBatch(bytes32,bytes32,uint256)".
+        client: httpx client.
+        rpc_url: RPC endpoint.
+        tx_hash: Transaction hash to poll.
+        timeout_seconds: Max wait time.
+        poll_interval: Seconds between polls.
 
     Returns:
-        Hex-encoded 4-byte selector with 0x prefix.
+        Transaction receipt dict, or None on timeout.
     """
-    import hashlib
+    elapsed = 0.0
+    while elapsed < timeout_seconds:
+        try:
+            receipt = await _rpc_call(client, rpc_url, "eth_getTransactionReceipt", [tx_hash])
+            if receipt is not None:
+                return receipt
+        except RuntimeError:
+            pass
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
 
-    digest = hashlib.sha3_256(signature.encode()).hexdigest()
-    return f"0x{digest[:8]}"
-
-
-# Pre-computed selector for anchorBatch(bytes32,bytes32,uint256)
-ANCHOR_BATCH_SELECTOR = _compute_selector("anchorBatch(bytes32,bytes32,uint256)")
-
-
-def _encode_anchor_call(merkle_root: str, metadata_hash: str, batch_id: str) -> str:
-    """Encode the anchorBatch function call data.
-
-    Args:
-        merkle_root: 64-char hex string (32 bytes).
-        metadata_hash: 64-char hex string (32 bytes).
-        batch_id: Batch ID string (hashed to uint256).
-
-    Returns:
-        Hex-encoded call data.
-    """
-    # Left-zero-pad bytes32 args to 64 hex chars (ABI encoding)
-    root_padded = merkle_root[:64].zfill(64)
-    meta_padded = metadata_hash[:64].zfill(64)
-    # Convert batch_id to uint256 (hash it, take as 256-bit integer, left-pad to 64 hex)
-    id_hash = sha256_hex(batch_id).zfill(64)
-    return f"{ANCHOR_BATCH_SELECTOR}{root_padded}{meta_padded}{id_hash}"
+    logger.warning("anchor_receipt_timeout", tx_hash=tx_hash, timeout=timeout_seconds)
+    return None

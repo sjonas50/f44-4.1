@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     BASE_L2_RPC_FALLBACK_URL: str = ""
     ANCHOR_CONTRACT_ADDRESS: str = ""
     ANCHOR_INTERVAL_SECONDS: int = 300
+    BASE_CHAIN_ID: int = 84532  # 84532 = Base Sepolia, 8453 = Base mainnet
+    DEPLOYER_PRIVATE_KEY: str = ""  # Hex private key for signing anchor transactions
     ALCHEMY_API_KEY: str = ""
     QUICKNODE_API_KEY: str = ""
 

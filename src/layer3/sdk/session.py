@@ -201,15 +201,19 @@ class SessionManager:
                 timestamp=datetime.now(UTC),
             )
             summary.batch_record_id = str(batch_record.id)
+
+            # Enqueue for the periodic anchor scheduler
+            if self._redis is not None:
+                from src.layer3.pipeline.scheduler import enqueue_batch_record
+
+                await enqueue_batch_record(self._redis, batch_record)
+
             logger.info(
-                "session_batch_record_created",
+                "session_batch_record_enqueued",
                 session_id=self.session_id,
                 batch_record_id=str(batch_record.id),
                 hash=summary.session_hash[:16],
             )
-            # In production, this would submit to ASOR's Merkle batch queue.
-            # For now, we create the record and log it. The periodic batch
-            # scheduler (when implemented) will collect pending records.
         except Exception:
             logger.exception("session_batch_record_failed", session_id=self.session_id)
 
