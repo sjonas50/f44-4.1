@@ -26,12 +26,7 @@ class AgentLifecycleMachine(StateMachine):
     establish = attested.to(established)
 
     # Suspension from any active state
-    suspend = (
-        registered.to(suspended)
-        | verified.to(suspended)
-        | attested.to(suspended)
-        | established.to(suspended)
-    )
+    suspend = registered.to(suspended) | verified.to(suspended) | attested.to(suspended) | established.to(suspended)
 
     # Reactivation goes back to registered (must re-verify)
     reactivate = suspended.to(registered)

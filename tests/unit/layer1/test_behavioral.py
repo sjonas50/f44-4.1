@@ -90,30 +90,39 @@ class TestScoring:
         baseline = None
         # Use varied input so EWMA builds real variance
         for _ in range(20):
-            baseline = update_baseline(baseline, {
-                "dead_end_count": random.gauss(3, 1),
-                "tool_invocations": max(0, random.gauss(5, 2)),
-                "cost_usd": max(0, random.gauss(0.04, 0.01)),
-                "duration_ms": max(0, random.gauss(12000, 3000)),
-            })
+            baseline = update_baseline(
+                baseline,
+                {
+                    "dead_end_count": random.gauss(3, 1),
+                    "tool_invocations": max(0, random.gauss(5, 2)),
+                    "cost_usd": max(0, random.gauss(0.04, 0.01)),
+                    "duration_ms": max(0, random.gauss(12000, 3000)),
+                },
+            )
 
         # Normal session — z-scores should be moderate
-        z_normal = compute_z_scores(baseline, {
-            "dead_end_count": 3,
-            "tool_invocations": 5,
-            "cost_usd": 0.04,
-            "duration_ms": 12000,
-        })
+        z_normal = compute_z_scores(
+            baseline,
+            {
+                "dead_end_count": 3,
+                "tool_invocations": 5,
+                "cost_usd": 0.04,
+                "duration_ms": 12000,
+            },
+        )
         for v in z_normal.values():
             assert abs(v) < 3.0, f"Expected moderate z-score for normal session, got {v}"
 
         # Highly anomalous session — at least one metric should flag
-        z_anomalous = compute_z_scores(baseline, {
-            "dead_end_count": 30,
-            "tool_invocations": 50,
-            "cost_usd": 0.40,
-            "duration_ms": 120000,
-        })
+        z_anomalous = compute_z_scores(
+            baseline,
+            {
+                "dead_end_count": 30,
+                "tool_invocations": 50,
+                "cost_usd": 0.40,
+                "duration_ms": 120000,
+            },
+        )
         assert any(abs(v) > 1.0 for v in z_anomalous.values())
 
     def test_anomaly_score_clamped(self) -> None:
@@ -149,15 +158,19 @@ class TestConsumer:
         for i in range(6):
             await redis_client.xadd(
                 "stream:behavioral_session",
-                {"payload": json.dumps({
-                    "agent_id": agent_id,
-                    "metrics": {
-                        "dead_end_count": 3 + i,
-                        "tool_invocations": 5,
-                        "cost_usd": 0.04,
-                        "duration_ms": 12000,
-                    },
-                })},
+                {
+                    "payload": json.dumps(
+                        {
+                            "agent_id": agent_id,
+                            "metrics": {
+                                "dead_end_count": 3 + i,
+                                "tool_invocations": 5,
+                                "cost_usd": 0.04,
+                                "duration_ms": 12000,
+                            },
+                        }
+                    )
+                },
             )
 
         processed = await process_session_events(redis_client)

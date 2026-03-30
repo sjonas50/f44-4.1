@@ -87,12 +87,14 @@ class TestAnchorSubmitter:
     @pytest.fixture
     def batch_result(self):
         ext = BatchExtension()
-        ext.add_record(BatchRecord(
-            hash=sha256_hex("test"),
-            record_type="audit",
-            layer=2,
-            timestamp=datetime.now(UTC),
-        ))
+        ext.add_record(
+            BatchRecord(
+                hash=sha256_hex("test"),
+                record_type="audit",
+                layer=2,
+                timestamp=datetime.now(UTC),
+            )
+        )
         return ext.build_batch()
 
     @pytest.mark.asyncio

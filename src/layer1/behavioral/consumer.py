@@ -76,11 +76,13 @@ async def process_session_events(redis_client: aioredis.Redis, consumer_name: st
                 score = compute_anomaly_score(z_scores)
                 factors = [f"{k}:{v:.2f}" for k, v in z_scores.items() if abs(v) > 1.0]
 
-            score_data = json.dumps({
-                "anomaly_score": score,
-                "factors": factors,
-                "total_sessions": new_baseline.total_sessions,
-            })
+            score_data = json.dumps(
+                {
+                    "anomaly_score": score,
+                    "factors": factors,
+                    "total_sessions": new_baseline.total_sessions,
+                }
+            )
             await redis_client.set(score_key, score_data, ex=SCORE_TTL)
 
             await xack(redis_client, BEHAVIORAL_STREAM, CONSUMER_GROUP, msg_id)

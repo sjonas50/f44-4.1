@@ -185,9 +185,7 @@ class ProvenanceCapture:
         lineage = {
             "decisions": self._decisions,
             "dead_ends": self._dead_end_count,
-            "decision_chain": [
-                d["decision"] for d in self._decisions
-            ],
+            "decision_chain": [d["decision"] for d in self._decisions],
         }
 
         return {

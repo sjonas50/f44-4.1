@@ -104,10 +104,12 @@ async def _send_anchor_tx(
     payload = {
         "jsonrpc": "2.0",
         "method": "eth_sendTransaction",
-        "params": [{
-            "to": contract_address,
-            "data": _encode_anchor_call(merkle_root, metadata_hash, batch_id),
-        }],
+        "params": [
+            {
+                "to": contract_address,
+                "data": _encode_anchor_call(merkle_root, metadata_hash, batch_id),
+            }
+        ],
         "id": 1,
     }
 
